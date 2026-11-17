@@ -1,0 +1,13 @@
+# Локальные артефакты, не публикуются
+.zwork/
+.zcode/
+backup/
+promo/
+
+# Python
+__pycache__/
+*.pyc
+
+# Системный мусор
+.DS_Store
+Thumbs.db

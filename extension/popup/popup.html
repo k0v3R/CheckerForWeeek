@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Checker for Weeek</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="header">
+    <h1 class="header__title" id="title">Непрочитанные уведомления</h1>
+    <span class="header__count" id="count" hidden></span>
+    <button class="header__gear" id="gear" type="button" title="Настройки" aria-label="Настройки" aria-pressed="false">
+      <!-- иконка настроек — «sliders» из набора Feather Icons (MIT) -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+    </button>
+    <button class="btn btn--primary" id="open-weeek" type="button">Открыть Weeek</button>
+  </header>
+
+  <main class="body" id="notifications-view">
+    <!-- Загрузка -->
+    <div class="state" id="state-loading">
+      <div class="skeleton">
+        <div class="skeleton__row"><span class="skeleton__icon"></span>
+          <span class="skeleton__lines"><span class="skeleton__line skeleton__line--w70"></span>
+          <span class="skeleton__line skeleton__line--w45"></span></span></div>
+        <div class="skeleton__row"><span class="skeleton__icon"></span>
+          <span class="skeleton__lines"><span class="skeleton__line skeleton__line--w60"></span>
+          <span class="skeleton__line skeleton__line--w80"></span></span></div>
+        <div class="skeleton__row"><span class="skeleton__icon"></span>
+          <span class="skeleton__lines"><span class="skeleton__line skeleton__line--w75"></span>
+          <span class="skeleton__line skeleton__line--w40"></span></span></div>
+      </div>
+    </div>
+
+    <!-- Ошибка сети -->
+    <div class="state" id="state-error" hidden>
+      <div class="state__icon state__icon--danger">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+      </div>
+      <p class="state__title">Не удалось загрузить уведомления</p>
+      <p class="state__text">Проверьте подключение к интернету</p>
+      <button class="btn btn--primary" id="retry" type="button">Повторить</button>
+    </div>
+
+    <!-- Не авторизован -->
+    <div class="state" id="state-auth" hidden>
+      <p class="state__title">Войдите в Weeek</p>
+      <p class="state__text">Уведомления появятся автоматически<br>после входа в аккаунт</p>
+      <button class="btn btn--primary" id="login" type="button">Войти</button>
+    </div>
+
+    <!-- Пусто -->
+    <div class="state" id="state-empty" hidden>
+      <div class="state__icon state__icon--accent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </div>
+      <p class="state__title">Нет непрочитанных уведомлений</p>
+      <p class="state__text">Здесь появятся новые задачи и комментарии</p>
+    </div>
+
+    <!-- Список -->
+    <ul class="list" id="list" hidden></ul>
+  </main>
+
+  <!-- Настройки: та же шапка (заголовок «Настройки», счётчик скрыт) -->
+  <main class="body" id="settings-view" hidden>
+    <section class="settings">
+      <div class="settings__card">
+        <div class="settings__row">
+          <div class="settings__info">
+            <span class="settings__label">Интервал проверки</span>
+            <span class="settings__hint" id="interval-hint">Расширение проверяет новые уведомления каждые:</span>
+          </div>
+        </div>
+        <div class="pill-group" id="interval-group" role="radiogroup" aria-label="Интервал проверки"></div>
+        <div class="settings__row settings__row--theme">
+          <div class="settings__info">
+            <span class="settings__label">Тема</span>
+            <span class="settings__hint" id="theme-hint">Повторяет тему системы</span>
+          </div>
+        </div>
+        <div class="pill-group pill-group--theme" id="theme-group" role="radiogroup" aria-label="Тема"></div>
+        <div class="settings__row settings__row--sound">
+          <div class="settings__info">
+            <span class="settings__label">Звук уведомления</span>
+            <span class="settings__hint">Проигрывать звук при получении уведомления</span>
+          </div>
+          <label class="switch" title="Звук уведомления">
+            <input type="checkbox" id="sound-toggle" checked>
+            <span class="switch__slider"></span>
+          </label>
+        </div>
+        <div class="settings__row settings__row--toast">
+          <div class="settings__info">
+            <span class="settings__label">Уведомления браузера</span>
+            <span class="settings__hint">Системный тост Windows при новых уведомлениях</span>
+          </div>
+          <label class="switch" title="Уведомления браузера">
+            <input type="checkbox" id="toast-toggle" checked>
+            <span class="switch__slider"></span>
+          </label>
+        </div>
+        <div class="settings__row settings__row--path">
+          <div class="settings__info">
+            <span class="settings__label">Путь до задачи</span>
+            <span class="settings__hint">Проект &gt; Доска &gt; Колонка под текстом плитки</span>
+          </div>
+          <label class="switch" title="Путь до задачи">
+            <input type="checkbox" id="path-toggle" checked>
+            <span class="switch__slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

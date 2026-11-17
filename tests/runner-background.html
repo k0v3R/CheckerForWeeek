@@ -1,0 +1,323 @@
+<!doctype html>
+<!-- Юнит-тесты background.js в настоящем JS-движке браузера.
+     Продакшн-скрипт подключается тегом <script> ПОСЛЕ стабов chrome/fetch:
+     top-level checkNotifications() безопасно уходит в catch (сеть отключена),
+     тестируются чистые функции парсинга. Запуск: просто открыть страницу
+     (file:// или локальный сервер). Итог — в <pre id="results"> и в title. -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>runner-background</title>
+  <style>
+    body { font: 13px/1.5 Consolas, monospace; margin: 16px; }
+    pre { white-space: pre-wrap; }
+    h1 { font-family: sans-serif; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Юнит-тесты background.js</h1>
+  <pre id="results">загрузка…</pre>
+
+  <!-- 1. Стабы окружения до загрузки production-кода -->
+  <script>
+  'use strict';
+  window.addEventListener('error', (e) => {
+    document.getElementById('results').textContent = 'ОШИБКА ЗАГРУЗКИ: ' + e.message;
+    document.title = 'PASS: ? / FAIL: runner error';
+  });
+  // Сеть отключена: top-level checkNotifications() safely уходит в ветку error
+  window.fetch = () => Promise.reject(new TypeError('network disabled in tests'));
+
+  function storageArea() {
+    const data = new Map();
+    return {
+      async get(keys) {
+        const out = {};
+        for (const k of (Array.isArray(keys) ? keys : [keys])) {
+          if (data.has(k)) out[k] = data.get(k);
+        }
+        return out;
+      },
+      async set(obj) { for (const [k, v] of Object.entries(obj)) data.set(k, v); },
+      async remove(keys) { for (const k of keys) data.delete(k); },
+      _data: data,
+    };
+  }
+
+  window.chrome = {
+    runtime: {
+      getContexts: async () => [],
+      getURL: (p) => 'chrome-extension://test/' + p,
+      sendMessage: async () => { throw new Error('no listener'); },
+      onInstalled: { addListener() {} },
+      onStartup: { addListener() {} },
+      onMessage: { addListener() {} },
+    },
+    action: {
+      setBadgeText: async () => {},
+      setBadgeBackgroundColor: async () => {},
+      setBadgeTextColor: async () => {},
+    },
+    alarms: {
+      create() {}, clear: async () => {}, get: async () => undefined,
+      onAlarm: { addListener() {} },
+    },
+    storage: {
+      session: storageArea(),
+      sync: storageArea(),
+      onChanged: { addListener() {} },
+    },
+    notifications: { create() {}, onClicked: { addListener() {} } },
+    cookies: { getAll: async () => [] },
+  };
+  </script>
+
+  <!-- 2. Production-код -->
+  <script src="../extension/background.js"></script>
+
+  <!-- 3. Тесты -->
+  <script>
+  'use strict';
+
+  /* ---------------- мини-фреймворк ---------------- */
+  const results = [];
+  async function test(name, fn) {
+    try {
+      await fn();
+      results.push([name, true, '']);
+    } catch (e) {
+      results.push([name, false, String((e && e.message) || e)]);
+    }
+  }
+  function eq(actual, expected, label) {
+    const a = JSON.stringify(actual);
+    const b = JSON.stringify(expected);
+    if (a !== b) throw new Error(`${label || 'значение'}: ожидалось ${b}, получено ${a}`);
+  }
+
+  /* ---------------- фикстуры (формат из docs/HANDOFF.md §3) ---------------- */
+  const docText = (text) => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+  });
+  const baseNotification = {
+    id: 1001,
+    type: 'task.comment.reply_created',
+    isRead: false,
+    createdAt: '2026-11-08T10:00:00Z',
+    workspaceId: '77',
+    breadcrumbs: [
+      { type: 'entity', entity: { type: 'workspace', title: 'Acme' } },
+      { type: 'task_locations', locations: [{ project: { id: 1, title: 'Дизайн сайта' }, board: { id: 2, title: 'В работе' }, boardColumn: { id: 3, title: 'На проверке' } }] },
+    ],
+    initiator: { name: 'Анна Соколова', type: 'user' },
+    body: { nodes: [
+      { type: 'initiator', initiator: { name: 'Анна Соколова' } },
+      { type: 'text', text: 'ответил(-а) в задаче ' },
+      { type: 'entity', entity: { type: 'task', id: 1024, title: 'Обновить дизайн лендинга' } },
+      { type: 'new_line' },
+      { type: 'content', content: { data: docText('Посмотрите новый макет') } },
+    ] },
+  };
+
+  /* ---------------- тесты ---------------- */
+  (async () => {
+    await null; // микротаски: дать top-level-код background.js завершиться
+
+    await test('unwrap: конверт {success,data} разворачивается', () =>
+      eq(unwrap({ success: true, data: [1, 2] }), [1, 2]));
+    await test('unwrap: массив без конверта проходит как есть', () => eq(unwrap([1]), [1]));
+    await test('unwrap: объект без success+data проходит как есть', () => eq(unwrap({ a: 1 }), { a: 1 }));
+    await test('unwrap: null безопасен', () => eq(unwrap(null), null));
+
+    await test('extractUnread: счётчик на верхнем уровне', () =>
+      eq(extractUnread({ notifications: { unread: { all: 5 } } }), 5));
+    await test('extractUnread: счётчик в me.user', () =>
+      eq(extractUnread({ user: { notifications: { unread: { all: 3 } } } }), 3));
+    await test('extractUnread: счётчик в me.profile', () =>
+      eq(extractUnread({ profile: { notifications: { unread: { all: 7 } } } }), 7));
+    await test('extractUnread: нет данных → null', () => eq(extractUnread({}), null));
+    await test('extractUnread: null безопасен', () => eq(extractUnread(null), null));
+
+    await test('stripHtml: теги вырезаются', () => eq(stripHtml('<b>Привет</b> мир'), 'Привет мир'));
+    await test('stripHtml: сущности декодируются', () =>
+      eq(stripHtml('A &amp; B &lt;C&gt; &quot;D&quot;'), 'A & B <C> "D"'));
+    await test('stripHtml: &nbsp; → пробел со схлопыванием', () => eq(stripHtml('a&nbsp;&nbsp;b'), 'a b'));
+
+    await test('nodeText: строка проходит', () => eq(nodeText('x'), 'x'));
+    await test('nodeText: поле text объекта', () => eq(nodeText({ text: 'текст' }), 'текст'));
+    await test('nodeText: объект без текстовых полей → пусто (не [object Object])', () =>
+      eq(nodeText({ foo: 'bar' }), ''));
+    await test('nodeText: null → пусто', () => eq(nodeText(null), ''));
+
+    await test('cleanInfoLine: «в задаче» на конце убирается', () =>
+      eq(cleanInfoLine('Анна ответил(-а) в задаче'), 'Анна ответил(-а)'));
+    await test('cleanInfoLine: «на задачи» с предлогом убирается', () =>
+      eq(cleanInfoLine('изменил срок на задачи'), 'изменил срок'));
+    await test('cleanInfoLine: хвост «задаче:» с двоеточием', () =>
+      eq(cleanInfoLine('Пётр: комментарий к задаче:'), 'Пётр: комментарий к'));
+    await test('cleanInfoLine: кавычки-огрызки по краям', () => eq(cleanInfoLine('«ответ»'), 'ответ'));
+    await test('cleanInfoLine: «подзадачи» не зацепит (шаблон требует пробел перед задач…)', () =>
+      eq(cleanInfoLine('добавил подзадачи'), 'добавил подзадачи'));
+
+    await test('collectDocText: текстовый лист собирается', () => {
+      const out = [];
+      collectDocText(docText('первый'), out);
+      eq(out, ['первый']);
+    });
+    await test('collectDocText: несколько абзацев по порядку', () => {
+      const out = [];
+      collectDocText({ type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'a' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'b' }] },
+      ] }, out);
+      eq(out, ['a', 'b']);
+    });
+    await test('collectDocText: не-объекты игнорируются', () => {
+      const out = [];
+      collectDocText('строка', out);
+      collectDocText(null, out);
+      eq(out, []);
+    });
+
+    await test('labelForType: реакция ловится по «react»', () =>
+      eq(labelForType('task.comment.reacted'), 'Реакция на комментарий'));
+    await test('labelForType: упоминание', () => eq(labelForType('task.mention.created'), 'Вас упомянули'));
+    await test('labelForType: комментарий', () =>
+      eq(labelForType('task.comment.reply_created'), 'Комментарий к задаче'));
+    await test('labelForType: обновление задачи', () => eq(labelForType('task.unblocked'), 'Обновление задачи'));
+    await test('labelForType: пространство', () =>
+      eq(labelForType('workspace.user.invited'), 'Рабочее пространство'));
+    await test('labelForType: неизвестный тип → «Уведомление»', () => eq(labelForType(''), 'Уведомление'));
+
+    await test('extractTaskPath: пространство и слово «задачи» отбрасываются', () =>
+      eq(extractTaskPath(baseNotification), 'Дизайн сайта > В работе > На проверке'));
+    await test('extractTaskPath: несколько локаций → первая +N', () =>
+      eq(extractTaskPath({ breadcrumbs: [{ type: 'task_locations', locations: [
+        { project: { title: 'P1' }, board: { title: 'B1' }, boardColumn: { title: 'C1' } },
+        { project: { title: 'P2' } },
+      ] }] }), 'P1 > B1 > C1 > +1'));
+    await test('extractTaskPath: нет крошек → пусто', () => eq(extractTaskPath({}), ''));
+    await test('extractTaskPath: воронка и сделка остаются в пути', () =>
+      eq(extractTaskPath({ breadcrumbs: [
+        { type: 'entity', entity: { type: 'funnel', title: 'Воронка' } },
+        { type: 'entity', entity: { type: 'deal', title: 'Сделка' } },
+      ] }), 'Воронка > Сделка'));
+
+    await test('normalize: комментарий → заголовок/инфо/сниппет/путь/id', () => {
+      const t = normalizeNotification(baseNotification);
+      eq(t.title, 'Обновить дизайн лендинга', 'title');
+      eq(t.info, 'Анна Соколова ответил(-а)', 'info');
+      eq(t.snippet, 'Посмотрите новый макет', 'snippet');
+      eq(t.taskPath, 'Дизайн сайта > В работе > На проверке', 'taskPath');
+      eq(t.taskId, '1024', 'taskId');
+      eq(t.workspaceId, '77', 'workspaceId');
+      eq(t.id, '1001', 'id');
+      eq(t.type, 'task.comment.reply_created', 'type');
+    });
+    await test('normalize: реакция — эмодзи из content в сниппете', () => {
+      const t = normalizeNotification({ ...baseNotification, id: 1002, type: 'task.comment.reacted', body: { nodes: [
+        { type: 'initiator', initiator: { name: 'Пётр Ильин' } },
+        { type: 'text', text: 'отреагировал(-а) на ваш комментарий ' },
+        { type: 'entity', entity: { type: 'task', id: 1024, title: 'Обновить дизайн лендинга' } },
+        { type: 'new_line' },
+        { type: 'content', content: { data: docText('👍') } },
+      ] } });
+      eq(t.title, 'Обновить дизайн лендинга', 'title');
+      eq(t.info, 'Пётр Ильин отреагировал(-а) на ваш комментарий', 'info');
+      eq(t.snippet, '👍', 'snippet');
+    });
+    await test('normalize: упоминание — «в задаче» вычищается из инфо', () => {
+      const t = normalizeNotification({ ...baseNotification, id: 1003, type: 'workspace.user.mentioned', body: { nodes: [
+        { type: 'initiator', initiator: { name: 'Дмитрий' } },
+        { type: 'text', text: 'упомянул(-а) вас в задаче ' },
+        { type: 'entity', entity: { type: 'task', id: 1025, title: 'Взять задачу в спринт' } },
+      ] } });
+      eq(t.title, 'Взять задачу в спринт', 'title');
+      eq(t.info, 'Дмитрий упомянул(-а) вас', 'info');
+      eq(t.snippet, '', 'snippet');
+    });
+    await test('normalize: приглашение без задачи — вся строка становится заголовком', () => {
+      const t = normalizeNotification({ id: 1004, type: 'workspace.user.invited', body: { nodes: [
+        { type: 'initiator', initiator: { name: 'Ольга' } },
+        { type: 'text', text: 'пригласил(-а) вас в рабочее пространство «Marketing»' },
+      ] } });
+      eq(t.title, 'Ольга пригласил(-а) вас в рабочее пространство «Marketing»', 'title');
+      eq(t.taskId, null, 'taskId');
+      eq(t.workspaceId, null, 'workspaceId');
+    });
+    await test('normalize: задача без названия в entity — заголовок из хвостового «…»', () => {
+      const t = normalizeNotification({ id: 1011, type: 'task.comment.created', workspaceId: '77', body: { nodes: [
+        { type: 'initiator', initiator: { name: 'Анна' } },
+        { type: 'text', text: 'добавил(-а) комментарий в задаче ' },
+        { type: 'entity', entity: { type: 'task', id: 555 } },
+        { type: 'text', text: '«Новая задача»' },
+      ] } });
+      eq(t.title, 'Новая задача', 'title');
+      eq(t.info, 'Анна добавил(-а) комментарий', 'info');
+      eq(t.taskId, '555', 'taskId');
+    });
+    await test('normalize: повтор фразы во 2-й строке — инфо-строка убирается', () => {
+      const t = normalizeNotification({ id: 1005, type: 'task.priority.changed', workspaceId: '77', body: { nodes: [
+        { type: 'initiator', initiator: { name: 'Франсиско Гарридо' } },
+        { type: 'text', text: 'изменил(-а) приоритет у задачи ' },
+        { type: 'entity', entity: { type: 'task', id: 1018, title: 'Настроить аналитику' } },
+        { type: 'text', text: ' на Средний - #28223' },
+        { type: 'new_line' },
+        { type: 'text', text: 'Франсиско Гарридо изменил(-а) приоритет у задачи на Средний - #28223' },
+      ] } });
+      eq(t.title, 'Настроить аналитику', 'title');
+      eq(t.info, '', 'info (дубль убран)');
+      eq(t.snippet, 'Франсиско Гарридо изменил(-а) приоритет у задачи на Средний - #28223', 'snippet');
+    });
+    await test('normalize: узел task_priority пропускается, без [object Object]', () => {
+      const t = normalizeNotification({ id: 1006, type: 'task.priority.changed', body: { nodes: [
+        { type: 'text', text: 'приоритет изменён' },
+        { type: 'task_priority', priority: 2 },
+      ] } });
+      eq(t.snippet, '', 'snippet');
+      eq(JSON.stringify(t).includes('[object'), false, 'нет [object');
+    });
+    await test('normalize: нет body → заголовок из labelForType', () => {
+      const t = normalizeNotification({ id: 7, type: 'weird.type' });
+      eq(t.title, 'Уведомление');
+      eq(t.id, '7');
+    });
+    await test('normalize: пустой массив nodes не ломает fallback', () => {
+      const t = normalizeNotification({ id: 8, type: 'weird.type', body: { nodes: [] } });
+      eq(t.title, 'Уведомление');
+      eq(JSON.stringify(t).includes('[object'), false, 'нет [object');
+    });
+    await test('normalize: taskId из data.task (запасной формат)', () => {
+      const t = normalizeNotification({ id: 9, type: 'x', data: { task: { id: 99, workspace_id: 5 } } });
+      eq(t.taskId, '99', 'taskId');
+      eq(t.workspaceId, '5', 'workspaceId');
+    });
+    await test('normalize: строковый data.task тоже принимается', () => {
+      eq(normalizeNotification({ id: 10, type: 'x', data: { task: '123' } }).taskId, '123');
+    });
+    await test('normalize: числовой id приводится к строке', () =>
+      eq(normalizeNotification({ id: 42, type: 't' }).id, '42'));
+    await test('normalize: createdAt fallback на created_at', () =>
+      eq(normalizeNotification({ id: 1, type: 't', created_at: '2026-01-01T00:00:00Z' }).createdAt,
+         '2026-01-01T00:00:00Z'));
+    await test('normalize: длинное название обрезается до 120 символов', () =>
+      eq(normalizeNotification({ id: 1, type: 't', body: { nodes: [
+        { type: 'entity', entity: { type: 'task', id: 1, title: 'ж'.repeat(300) } },
+      ] } }).title.length, 120));
+
+    /* ---------------- сводка ---------------- */
+    renderSummary(results, 'Юнит-тесты background.js');
+  })();
+
+  function renderSummary(results, heading) {
+    const pass = results.filter((r) => r[1]).length;
+    const fail = results.length - pass;
+    const lines = results.map(([name, ok, err]) => `${ok ? 'PASS' : 'FAIL'}  ${name}${err ? ' — ' + err : ''}`);
+    lines.push('', `ИТОГО: PASS ${pass} / FAIL ${fail}`);
+    document.getElementById('results').textContent = lines.join('\n');
+    document.title = `PASS: ${pass} / FAIL: ${fail}`;
+  }
+  </script>
+</body>
+</html>

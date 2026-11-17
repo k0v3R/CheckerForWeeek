@@ -1,0 +1,782 @@
+/* ============================================================
+   Checker for Weeek — уведомления. Дизайн-токены проекта
+   (светлая и тёмная темы).
+   ============================================================ */
+
+:root {
+  /* Светлая тема (по умолчанию); color-scheme красит нативные контролы */
+  color-scheme: light;
+  --bg: #F8F8FB;
+  --surface: #FFFFFF;
+  --surface-2: #F5F6F7;
+  --surface-hover: #F8F9FB;
+  --text-1: #0E0F10;
+  --text-2: #666C73;
+  --text-3: #A7AFB8;
+  --border: #EDEDF5;
+  --border-strong: rgba(15, 25, 36, 0.14);
+  --accent: #617CFA;
+  --accent-hover: #3E6FF5;
+  --accent-soft: rgba(97, 124, 250, 0.1);
+  --danger: #F53905;
+  --shadow: 0 4px 16px rgba(15, 25, 36, 0.08);
+  /* Производные токены компонентов интерфейса. Перекрашиваются в тёмной теме
+     ТОЛЬКО здесь — тёмных элементных правил нет вовсе: со специфичностью
+     :root:not(...) они перебивали hover-состояния (шестерёнка и точки «⋯»
+     переставали перекрашиваться во что-либо при наведении). */
+  --icon-idle: #CACAD2; /* иконки-«призраки» в покое: иконка настроек, точки «⋯» */
+  --icon-hover: #6C78F4; /* hover иконки настроек: в светлой теме — фирменный */
+  --skeleton-base: #F5F6F7; /* скелетон загрузки */
+  --scrollbar-track: #E5E7EE;
+  --scrollbar-thumb: #CACAD2;
+  --surface-elevated: #FFFFFF; /* дропдаун и подсказка */
+}
+
+/* Тёмная тема включается двумя путями:
+   — настройка «Системная» (атрибут data-theme не ставится вовсе) — решает
+     медиазапрос, тёмная работает даже без JS;
+   — настройка «Тёмная» — popup.js ставит <html data-theme="dark">.
+   Гард :not([data-theme="light"]) не даёт медиазапросу перекрасить попап
+   при явном выборе «Светлая» на тёмной системе. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    /* Тёмная тема проекта.
+       Фон страницы чуть светлее поверхностей (#1A1B1D против #131416) —
+       плитки и шапка отделяются от фона, как в светлой теме,
+       где белый карточек лежит на сером #F8F8FB. */
+    --bg: #1A1B1D;
+    --surface: #131416;
+    --surface-2: #0E0F10; /* темнее фона */
+    --surface-hover: rgba(225, 230, 239, 0.08); /* #e1e6ef14 */
+    --surface-elevated: #202225; /* меню и тултип — ступень над фоном */
+    --text-1: #DDE0E3;
+    --text-2: #9199A3;
+    --text-3: #53585E;
+    --icon-idle: #7C838B; /* иконки-«призраки» в тёмной теме */
+    --icon-hover: var(--text-1); /* hover иконки настроек — цветом шрифта (2026-11-17) */
+    --border: rgba(217, 225, 242, 0.12); /* #d9e1f21f */
+    --border-strong: #42464B; /* усиленный бордер */
+    --accent: #3E6FF5;
+    --accent-hover: #2256DD;
+    --accent-soft: rgba(62, 111, 245, 0.16);
+    --danger: #FF583F; /* danger-цвет в тёмной теме */
+    --skeleton-base: #292B2E; /* скелетон */
+    --scrollbar-track: transparent; /* #0b0d0e00 */
+    --scrollbar-thumb: rgba(217, 227, 242, 0.19); /* #d9e3f230 */
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Принудительная тёмная (настройка «Тёмная»): те же токены, что в медиазапросе */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1A1B1D;
+  --surface: #131416;
+  --surface-2: #0E0F10;
+  --surface-hover: rgba(225, 230, 239, 0.08);
+  --surface-elevated: #202225;
+  --text-1: #DDE0E3;
+  --text-2: #9199A3;
+  --text-3: #53585E;
+  --icon-idle: #7C838B;
+  --icon-hover: var(--text-1); /* hover иконки настроек — цветом шрифта (2026-11-17) */
+  --border: rgba(217, 225, 242, 0.12);
+  --border-strong: #42464B;
+  --accent: #3E6FF5;
+  --accent-hover: #2256DD;
+  --accent-soft: rgba(62, 111, 245, 0.16);
+  --danger: #FF583F;
+  --skeleton-base: #292B2E;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(217, 227, 242, 0.19);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  /* 456px = +20% к прежним 380px. Высота 600px — максимум, который
+     Edge вообще позволяет для попапа расширения, больше не сделать. */
+  width: 456px;
+  max-height: 600px;
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+body {
+  /* колонка: шапка закреплена, под ней скроллится тело —
+     полоса прокрутки живёт строго под шапкой */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------ Шапка ------------------------------ */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  /* текст шапки не выделяется */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.header__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.header__count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* однозначный счётчик — идеальный круг */
+.header__count--single {
+  width: 20px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+/* Кнопка настроек (иконка «sliders» из набора Feather Icons) слева от
+   «Открыть Weeek»: открывает настройки (второй клик возвращает к
+   уведомлениям). Без фоновой подсветки — цвет меняет только сама иконка:
+   серая в покое и в открытых настройках, фиолетовая при наведении */
+.header__gear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* В покое иконка настроек серая (--icon-idle), при наведении — токен
+   --icon-hover (фирменный фиолетовый в светлой теме, цвет шрифта в тёмной).
+   Иконка — обводка currentColor, цвет задаём на корне svg. Тёмная тема
+   меняет цвет через переменную --icon-idle, поэтому hover работает
+   в обеих темах. */
+.header__gear svg {
+  color: var(--icon-idle);
+}
+
+.header__gear:hover svg {
+  color: var(--icon-hover);
+}
+
+.header__gear svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+/* ----------------------------- Кнопки ------------------------------ */
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #FFFFFF;
+}
+
+.btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+/* ------------------------- Тело и состояния ------------------------ */
+
+.body {
+  /* flex-ребёнку нужен min-height: 0, иначе он не сожмётся ниже контента
+     и прокрутка уйдёт на уровень документа (во всю высоту окна) */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Полоса прокрутки — тонкая линия 3px внутри окна.
+   Правила глобальные, потому что в попапе скроллится сам
+   документ, а не main.body. Цвета — из токенов темы: в светлой трек
+   #e5e7ee и ползунок #cacad2 (тот же серый, что у шестерёнки в покое),
+   в тёмной трек прозрачный и ползунок полупрозрачный. */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: var(--scrollbar-track);
+  border-radius: 30px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: none;
+  border-radius: 30px;
+}
+
+.state {
+  padding: 36px 24px;
+  text-align: center;
+  /* текст стартовых экранов (вход, ошибка, пусто) не выделяется — как в шапке */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.state__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.state__icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.state__icon--accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.state__icon--danger {
+  background: rgba(245, 57, 5, 0.1);
+  color: var(--danger);
+}
+
+.state__title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.state__text {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* --------------------------- Скелетоны ----------------------------- */
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.skeleton__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.skeleton__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: linear-gradient(100deg, var(--skeleton-base) 40%, var(--surface-hover) 50%, var(--skeleton-base) 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite linear;
+}
+
+.skeleton__lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 3px;
+}
+
+.skeleton__line {
+  height: 9px;
+  border-radius: 4px;
+  background: linear-gradient(100deg, var(--skeleton-base) 40%, var(--surface-hover) 50%, var(--skeleton-base) 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite linear;
+}
+
+.skeleton__line--w70 { width: 70%; }
+.skeleton__line--w60 { width: 60%; }
+.skeleton__line--w75 { width: 75%; }
+.skeleton__line--w45 { width: 45%; }
+.skeleton__line--w40 { width: 40%; }
+.skeleton__line--w80 { width: 80%; }
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* ------------------------------ Список ----------------------------- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Атрибут hidden сам список не прячет: display:flex из правила выше
+   перебивает браузерное [hidden] { display: none }. Без этого правила
+   после выхода из аккаунта первый клик по попапу показывал экран
+   «Войдите в» вместе с кэшем плиток прошлой сессии. */
+.list[hidden] {
+  display: none;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap; /* путь (.tile__path) переносится на строку ниже текста */
+  /* именно column-gap: шорткат gap ставил и row-gap 12px, который незаметно
+     отделял строку пути от текста; вертикальный отступ задаёт сам путь */
+  column-gap: 12px; /* иконка: слева 12px (паддинг) и справа до текста 12px */
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.tile:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.tile:active {
+  background: var(--surface-2);
+}
+
+.tile__icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  /* без extra-отступа (остаток от синей точки): иконка встаёт ровно в
+     паддинг 12px — её отступы слева и справа (до текста) одинаковые */
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tile__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tile__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: -3px; /* текстовый блок: +5px вверх, затем −2px вниз по просьбе */
+}
+
+.tile__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tile__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile__time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: opacity 0.12s ease; /* при наведении уступает место меню «⋯» */
+}
+
+/* Инфо-строка «кто и что сделал» под названием задачи — обычным шрифтом
+   основного текста (12px), одна строка с многоточием */
+.tile__info {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile__snippet {
+  margin: 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* максимум 2 строки; не влезло — троеточие */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 17px; /* строка резервируется, даже если текста нет */
+}
+
+/* Путь до задачи (настройка): тонкий разделитель от края до края ПЛИТКИ
+   (13px = 1px её рамка + 12px паддинг; ширина 100% + 26px — при
+   box-sizing: border-box одних отрицательных полей мало, они не растягивают
+   фиксированную ширину), линия сливается с боковыми рамками плитки и не
+   выходит к краям окна попапа. Блок опущен на 9px ниже подъёма (−3px →
+   +6px); под разделителем 5px; путь одной строкой с « > », без пути строки
+   нет вовсе */
+.tile__path {
+  width: calc(100% + 26px);
+  margin: 6px -13px 0;
+  padding: 5px 13px 0;
+  border-top: 1px solid var(--border);
+  font-size: 9px;
+  line-height: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Меню «⋯» — тихие действия без открытия задачи. Живёт в правом верхнем
+   углу плитки, появляется только при наведении; открытому
+   меню время не нужно — точки встают на его место. */
+.tile__menu {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.tile:hover .tile__menu,
+.tile--menu-open .tile__menu {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tile:hover .tile__time,
+.tile--menu-open .tile__time {
+  opacity: 0;
+}
+
+.tile--menu-open {
+  z-index: 10; /* открытый дропдаун перекрывает соседние плитки */
+}
+
+.tile__menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  /* в покое точки серые (--icon-idle — тот же серый, что у шестерёнки
+     в покое); фиолетовыми они становятся при наведении и в открытом меню.
+     Все три точки одним цветом */
+  color: var(--icon-idle);
+  cursor: pointer;
+}
+
+/* без подложки — при наведении меняется только цвет точек */
+.tile__menu-btn:hover,
+.tile--menu-open .tile__menu-btn {
+  color: var(--accent);
+}
+
+.tile__menu-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Дропдаун: «Прочитать» и «Архивировать».
+   Ширина по контенту (без min-width): иначе справа остаётся пустота и
+   отступы по бокам выглядят неравномерными. */
+.tile__dropdown {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  /* приподнятая поверхность контекст-меню (в тёмной теме светлее фона) */
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow);
+  z-index: 30;
+}
+
+/* снизу места нет, а сверху меню помещается целиком — раскрывается вверх */
+.tile__dropdown--up {
+  top: auto;
+  bottom: 24px;
+}
+
+.tile__dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tile__dropdown-item:hover {
+  /* hover пунктов меню */
+  background: var(--surface-hover);
+}
+
+.tile__dropdown-item svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+
+/* Всплывающая подсказка обрезанных строк — вместо системного title:
+   у системной нельзя ограничить ширину, у своей можно (320px). Текст
+   полный — без ограничения по длине и по высоте. Оформление — как у
+   дропдауна меню. */
+.tooltip {
+  position: fixed;
+  z-index: 60; /* поверх открытого дропдауна (30) */
+  max-width: 320px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* приподнятая поверхность, как у дропдауна */
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: break-word;
+  pointer-events: none;
+  display: none;
+}
+
+.tooltip--visible {
+  display: block;
+}
+
+/* ---------------------------- Настройки ---------------------------- */
+
+.settings {
+  padding: 8px;
+  /* текст настроек не выделяется — как в шапке */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.settings__card {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.settings__row--sound,
+.settings__row--path,
+.settings__row--toast {
+  border-top: 1px solid var(--border);
+  /* вся строка кликабельна: щелчок в любом месте переключает тумблер */
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+/* Строка «Тема» — не тумблер (кликабельны только её пилюли):
+   нужен только разделитель сверху */
+.settings__row--theme {
+  border-top: 1px solid var(--border);
+}
+
+/* эффект наведения — как у плиток уведомлений */
+.settings__row--sound:hover,
+.settings__row--path:hover,
+.settings__row--toast:hover {
+  background: var(--surface-hover);
+}
+
+.settings__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.settings__hint {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+/* Выбор интервала: пилюли, активная залита фирменным цветом.
+   Сетка в один ряд: пять кнопок времени — равные колонки (1fr),
+   «Отключить» — колонка по контенту (auto), ширина может отличаться.
+   Чтобы равные пилюли уместились в 414px рядом с «Отключить», горизонтальный
+   паддинг кнопок уменьшен 11px → 8px («30 мин» — самая широкая, 58px). */
+.pill-group {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr) auto;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+/* Тема: три равные пилюли («Системная», «Светлая», «Тёмная») */
+.pill-group--theme {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.pill {
+  padding: 5px 8px;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.pill:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.pill--active,
+.pill--active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+}
+
+/* Переключатель звука */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.switch__slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: var(--text-3);
+  transition: background 0.15s ease;
+}
+
+.switch__slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.switch input:checked + .switch__slider {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch__slider::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .switch__slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

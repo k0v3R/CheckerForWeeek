@@ -1,0 +1,249 @@
+<!doctype html>
+<!-- Юнит-тесты popup.js: минимальные DOM-стабы до загрузки продакшн-скрипта.
+     chrome намеренно отсутствует → popup.js уходит в демо-режим и отрисовывает
+     DEMO_ITEMS в фейковые узлы. Тестируются чистые функции и демо-рендер.
+     Итог — в <pre id="results"> и в title. -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>runner-popup</title>
+  <style>
+    body { font: 13px/1.5 Consolas, monospace; margin: 16px; }
+    pre { white-space: pre-wrap; }
+    h1 { font-family: sans-serif; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Юнит-тесты popup.js</h1>
+  <pre id="results">загрузка…</pre>
+
+  <!-- 1. DOM-стабы до загрузки production-кода -->
+  <script>
+  'use strict';
+  window.addEventListener('error', (e) => {
+    document.getElementById('results').textContent = 'ОШИБКА ЗАГРУЗКИ: ' + e.message;
+    document.title = 'PASS: ? / FAIL: runner error';
+  });
+
+  class FakeElement {
+    constructor(tag) {
+      this.tagName = String(tag).toUpperCase();
+      this.children = [];
+      this.dataset = {};
+      this.style = {};
+      this.hidden = false;
+      this.textContent = '';
+      this.title = '';
+      this.checked = false;
+      this._classes = new Set();
+      this._html = '';
+      const self = this;
+      this.classList = {
+        add: (...names) => names.forEach((n) => self._classes.add(n)),
+        remove: (...names) => names.forEach((n) => self._classes.delete(n)),
+        toggle(n, force) {
+          const has = self._classes.has(n);
+          const next = force === undefined ? !has : Boolean(force);
+          if (next) self._classes.add(n); else self._classes.delete(n);
+          return next;
+        },
+        contains: (n) => self._classes.has(n),
+      };
+    }
+    get className() { return [...this._classes].join(' '); }
+    set className(v) { this._classes = new Set(String(v).split(/\s+/).filter(Boolean)); }
+    get innerHTML() { return this._html; }
+    set innerHTML(v) { this._html = String(v); }
+    appendChild(child) { this.children.push(child); return child; }
+    replaceChildren(...children) { this.children = children; }
+    setAttribute() {}
+    getAttribute() { return null; }
+    addEventListener() {}
+    closest() { return null; }
+    querySelectorAll() { return []; }
+    getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
+    get scrollWidth() { return 0; }
+    get clientWidth() { return 1; }
+    get scrollHeight() { return 0; }
+    get clientHeight() { return 1; }
+    get offsetWidth() { return 10; }
+    get offsetHeight() { return 10; }
+  }
+
+  const registry = new Map();
+  function fakeById(id) {
+    if (!registry.has(id)) registry.set(id, new FakeElement('div'));
+    return registry.get(id);
+  }
+
+  // Патчим методы РЕАЛЬНОГО document (сам объект document в браузере
+  // незаменяемый): отсутствующие в странице-раннере элементы отдаём
+  // из реестра, чтобы popup.js отрисовал демо в фейковые узлы, а тесты
+  // читали те же объекты обратно.
+  const realGetById = Document.prototype.getElementById;
+  document.getElementById = function (id) {
+    return realGetById.call(document, id) || fakeById(id);
+  };
+  document.createElement = (tag) => new FakeElement(tag);
+  document.createElementNS = (_ns, tag) => new FakeElement(tag);
+  const realQuerySelector = document.querySelector.bind(document);
+  document.querySelector = (sel) => realQuerySelector(sel) || new FakeElement('div');
+  const realAppendChild = document.body.appendChild.bind(document.body);
+  document.body.appendChild = (el) => (el instanceof Node ? realAppendChild(el) : el);
+  // querySelectorAll не трогаем: в странице-раннере нет строк настроек,
+  // настоящий метод вернёт пустой список — то, что нужно init()
+  // window.chrome НЕ определяем → isExtensionContext() === false → демо-режим
+  </script>
+
+  <!-- 2. Production-код -->
+  <script src="../extension/popup/popup.js"></script>
+
+  <!-- 3. Тесты -->
+  <script>
+  'use strict';
+
+  const results = [];
+  async function test(name, fn) {
+    try {
+      await fn();
+      results.push([name, true, '']);
+    } catch (e) {
+      results.push([name, false, String((e && e.message) || e)]);
+    }
+  }
+  function eq(actual, expected, label) {
+    const a = JSON.stringify(actual);
+    const b = JSON.stringify(expected);
+    if (a !== b) throw new Error(`${label || 'значение'}: ожидалось ${b}, получено ${a}`);
+  }
+
+  (async () => {
+    await null; // микротаски: дать init() дорисовать демо-данные
+
+    const listEl = document.getElementById('list');
+    await test('демо-режим: 4 плитки отрисованы', () => eq(listEl.children.length, 4));
+    await test('демо-режим: у каждой плитки есть иконка и заголовок', () => {
+      for (const li of listEl.children) {
+        const icon = li.children.find((c) => c.className === 'tile__icon');
+        const content = li.children.find((c) => c.className === 'tile__content');
+        if (!icon || !content) throw new Error('плитка без иконки/контента');
+        const top = content.children.find((c) => c.className === 'tile__top');
+        const title = top && top.children.find((c) => c.className === 'tile__title');
+        if (!title || !title.textContent) throw new Error('плитка без заголовка');
+      }
+    });
+    await test('демо-режим: счётчик шапки скрыт (hidden)', () => {
+      // renderDemo передаёт unreadCount = 4 → счётчик должен быть виден
+      const count = document.getElementById('count');
+      eq(count.hidden, false, 'count.hidden');
+      eq(count.textContent, '4', 'count.textContent');
+    });
+
+    await test('заголовок шапки: список непрочитанных → «Непрочитанные уведомления»', () => {
+      eq(document.getElementById('title').textContent, 'Непрочитанные уведомления');
+    });
+    await test('заголовок шапки: экран входа → «Checker for Weeek»', () => {
+      render({ authState: 'unauthorized', items: [] });
+      eq(document.getElementById('title').textContent, 'Checker for Weeek');
+      renderDemo(); // вернуть демо-состояние
+      eq(document.getElementById('title').textContent, 'Непрочитанные уведомления');
+    });
+    await test('заголовок шапки: пустой список → «Checker for Weeek»', () => {
+      render({ authState: 'ok', unreadCount: 0, items: [] });
+      eq(document.getElementById('title').textContent, 'Checker for Weeek');
+      renderDemo(); // вернуть демо-состояние для остальных тестов
+    });
+
+    await test('formatTime: null → пусто', () => eq(formatTime(null), ''));
+    await test('formatTime: мусорная строка → пусто', () => eq(formatTime('не дата'), ''));
+    await test('formatTime: <1 мин → «только что»', () =>
+      eq(formatTime(new Date(Date.now() - 30 * 1000).toISOString()), 'только что'));
+    await test('formatTime: минуты', () =>
+      eq(formatTime(new Date(Date.now() - 5 * 60000).toISOString()), '5 мин'));
+    await test('formatTime: часы', () =>
+      eq(formatTime(new Date(Date.now() - 3 * 3600000).toISOString()), '3 ч'));
+    await test('formatTime: 25 часов → «вчера»', () =>
+      eq(formatTime(new Date(Date.now() - 25 * 3600000).toISOString()), 'вчера'));
+    await test('formatTime: 2–6 дней', () =>
+      eq(formatTime(new Date(Date.now() - 3 * 86400000).toISOString()), '3 дн'));
+    await test('formatTime: старые даты → локализованная дата (не пусто)', () => {
+      const out = formatTime(new Date(Date.now() - 40 * 86400000).toISOString());
+      if (!out) throw new Error('пустая строка');
+    });
+
+    await test('iconKeyForType: реакция (task.comment.reacted → heart)', () =>
+      eq(iconKeyForType('task.comment.reacted'), 'reaction'));
+    await test('iconKeyForType: упоминание', () => eq(iconKeyForType('workspace.user.mentioned'), 'mention'));
+    await test('iconKeyForType: комментарий', () => eq(iconKeyForType('task.comment.reply_created'), 'comment'));
+    await test('iconKeyForType: задача', () => eq(iconKeyForType('task.unblocked'), 'task'));
+    await test('iconKeyForType: пространство', () => eq(iconKeyForType('workspace.user.invited'), 'workspace'));
+    await test('iconKeyForType: пустой/неизвестный тип → bell', () => {
+      eq(iconKeyForType(''), 'bell');
+      eq(iconKeyForType(undefined), 'bell');
+    });
+
+    await test('DEMO_ITEMS: уникальные id и обязательные поля', () => {
+      const ids = DEMO_ITEMS.map((i) => i.id);
+      eq(new Set(ids).size, ids.length, 'id уникальны');
+      for (const item of DEMO_ITEMS) {
+        if (!item.id || !item.type || typeof item.title !== 'string' || !item.createdAt) {
+          throw new Error('битый демо-элемент ' + item.id);
+        }
+      }
+    });
+    await test('DEMO_ITEMS: есть длинные строка и путь (для проверки подсказок)', () => {
+      if (!DEMO_ITEMS.some((i) => i.taskPath && i.taskPath.length > 30)) {
+        throw new Error('нет плитки с длинным путём');
+      }
+      if (!DEMO_ITEMS.some((i) => i.snippet && i.snippet.length > 80)) {
+        throw new Error('нет плитки с длинным сниппетом');
+      }
+    });
+    await test('тема: buildThemePills создаёт 3 пилюли (auto/light/dark)', () => {
+      const group = document.getElementById('theme-group');
+      eq(group.children.length, 3, 'число пилюль темы');
+      eq(group.children.map((b) => b.dataset.value), ['auto', 'light', 'dark'], 'значения пилюль');
+    });
+    await test('тема: applyTheme — «Системная» снимает data-theme с <html>', () => {
+      document.documentElement.dataset.theme = 'dark';
+      settings.theme = 'auto';
+      applyTheme();
+      eq(document.documentElement.dataset.theme, undefined, 'data-theme снят');
+    });
+    await test('тема: applyTheme — «Светлая»/«Тёмная» ставят data-theme', () => {
+      settings.theme = 'dark';
+      applyTheme();
+      eq(document.documentElement.dataset.theme, 'dark', 'data-theme тёмной');
+      settings.theme = 'light';
+      applyTheme();
+      eq(document.documentElement.dataset.theme, 'light', 'data-theme светлой');
+      settings.theme = 'auto';
+      applyTheme(); // вернуть исходное, чтобы не влиять на другие тесты
+    });
+    await test('тема: renderSettings активирует пилюлю текущей темы и подсказку', () => {
+      settings.theme = 'light';
+      renderSettings();
+      const group = document.getElementById('theme-group');
+      const active = group.children.filter((b) => b.classList.contains('pill--active'));
+      eq(active.map((b) => b.dataset.value), ['light'], 'активная пилюля');
+      if (!document.getElementById('theme-hint').textContent) {
+        throw new Error('пустая подсказка темы');
+      }
+      settings.theme = 'auto';
+      renderSettings();
+    });
+
+    renderSummary(results);
+  })();
+
+  function renderSummary(results) {
+    const pass = results.filter((r) => r[1]).length;
+    const fail = results.length - pass;
+    const lines = results.map(([name, ok, err]) => `${ok ? 'PASS' : 'FAIL'}  ${name}${err ? ' — ' + err : ''}`);
+    lines.push('', `ИТОГО: PASS ${pass} / FAIL ${fail}`);
+    document.getElementById('results').textContent = lines.join('\n');
+    document.title = `PASS: ${pass} / FAIL: ${fail}`;
+  }
+  </script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- Юнит-тесты offscreen.js: стаб chrome.runtime + Audio, проверяем регистрацию
+     слушателя, путь файла звука, громкость и игнорирование чужих сообщений.
+     Итог — в <pre id="results"> и в title. -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>runner-offscreen</title>
+  <style>
+    body { font: 13px/1.5 Consolas, monospace; margin: 16px; }
+    pre { white-space: pre-wrap; }
+    h1 { font-family: sans-serif; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Юнит-тесты offscreen.js</h1>
+  <pre id="results">загрузка…</pre>
+
+  <!-- 1. Стабы до загрузки production-кода -->
+  <script>
+  'use strict';
+  window.addEventListener('error', (e) => {
+    document.getElementById('results').textContent = 'ОШИБКА ЗАГРУЗКИ: ' + e.message;
+    document.title = 'PASS: ? / FAIL: runner error';
+  });
+  window.__played = [];
+  window.__listener = null;
+  window.chrome = {
+    runtime: {
+      getURL: (p) => 'chrome-extension://test/' + p,
+      onMessage: { addListener(fn) { window.__listener = fn; } },
+    },
+  };
+  window.Audio = class {
+    constructor(src) { this.src = src; this.volume = 1; }
+    play() { window.__played.push({ src: this.src, volume: this.volume }); return Promise.resolve(); }
+  };
+  </script>
+
+  <!-- 2. Production-код -->
+  <script src="../extension/offscreen/offscreen.js"></script>
+
+  <!-- 3. Тесты -->
+  <script>
+  'use strict';
+
+  const results = [];
+  async function test(name, fn) {
+    try {
+      await fn();
+      results.push([name, true, '']);
+    } catch (e) {
+      results.push([name, false, String((e && e.message) || e)]);
+    }
+  }
+  function eq(actual, expected, label) {
+    const a = JSON.stringify(actual);
+    const b = JSON.stringify(expected);
+    if (a !== b) throw new Error(`${label || 'значение'}: ожидалось ${b}, получено ${a}`);
+  }
+
+  (async () => {
+    await null;
+
+    await test('слушатель runtime.onMessage зарегистрирован', () => {
+      if (typeof window.__listener !== 'function') throw new Error('addListener не вызван');
+    });
+    await test('play-sound: играет фирменный файл с переданной громкостью', async () => {
+      await window.__listener({ type: 'weeek:play-sound', volume: 0.4 });
+      eq(window.__played.length, 1, 'число проигрываний');
+      eq(window.__played[0].src, 'chrome-extension://test/sounds/notification.wav', 'src');
+      eq(window.__played[0].volume, 0.4, 'volume');
+    });
+    await test('play-sound: без volume → дефолт 0.4', async () => {
+      await window.__listener({ type: 'weeek:play-sound' });
+      eq(window.__played[1].volume, 0.4, 'volume');
+    });
+    await test('чужой тип сообщения игнорируется', async () => {
+      await window.__listener({ type: 'other' });
+      eq(window.__played.length, 2, 'число проигрываний не выросло');
+    });
+
+    renderSummary(results);
+  })();
+
+  function renderSummary(results) {
+    const pass = results.filter((r) => r[1]).length;
+    const fail = results.length - pass;
+    const lines = results.map(([name, ok, err]) => `${ok ? 'PASS' : 'FAIL'}  ${name}${err ? ' — ' + err : ''}`);
+    lines.push('', `ИТОГО: PASS ${pass} / FAIL ${fail}`);
+    document.getElementById('results').textContent = lines.join('\n');
+    document.title = `PASS: ${pass} / FAIL: ${fail}`;
+  }
+  </script>
+</body>
+</html>
